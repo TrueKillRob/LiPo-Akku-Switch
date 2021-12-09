@@ -13,6 +13,10 @@
 #define _ADC_ACCU3    2
 #define _ADC_CURR     3
 #define _ADC_CurRef   7
+
+#define LED_toggle    (PORTA ^= (1<<_A_LED))
+#define LED_on        (PORTA |= (1<<_A_LED))
+#define LED_off       (PORTA &= ~(1<<_A_LED))
  
 class average {
   private:
@@ -54,7 +58,7 @@ class average {
 void goToSleep(void);
 uint16_t GetADC(uint8_t);
 
-average AC1, AC2, AC3, CUR;
+average AC1, AC2, AC3, CUR, REF;
 uint8_t timer;
 bool charge;
 
@@ -62,10 +66,12 @@ void setup() {
   cli();
   charge = 0;
   ADCSRA = 0b10010111;   //ADC ein
-  
+  //         76543210
   DDRB   = 0b00000111;  
-  DDRA   = 0b10000000;
+  PORTB  = 0b00000111;
 
+  DDRA   = 0b00100000;
+  
   MCUCR  &= ~((1<<SM0)|(1<<SM1)); //b01000000;
 
   GTCCR  = 0b00000000; 
@@ -80,67 +86,90 @@ void setup() {
 }
 
 void loop() {
-  uint16_t _A1, _A2, _A3, _CU;
+  uint16_t _A1, _A2, _A3;
+  int16_t _CU;
   uint8_t tmp = 0;
-  
-  if ( timer == 0 ) {
+
+  //timer = 2;
+
+
+  //LED_toggle;
+
+  if ( timer == 1 ) {
     ADCSRA |= 0b10000000;   //ADC ein
     GetADC( _ADC_ACCU1 );
     AC1.Add ( GetADC( _ADC_ACCU1 ) ) ;
     AC2.Add ( GetADC( _ADC_ACCU2 ) ) ;
     AC3.Add ( GetADC( _ADC_ACCU3 ) ) ;
-    CUR.Add ( GetADC( _ADC_CURR ) ) ;
   }
 
-  if ( timer == 1 ) {
+  if ( timer == 2 ) {
+    ADCSRA |= 0b10000000;   //ADC ein
+    GetADC( _ADC_CURR );
+    CUR.Add ( GetADC( _ADC_CURR ) ) ;
+    REF.Add ( GetADC( _ADC_CurRef ) ) ;
+  }
 
-    if ( AC1.getcount() == 5 && 
-         AC2.getcount() == 5 && 
-         AC3.getcount() == 5 && 
-         CUR.getcount() == 5 ) {
+  //PORTA &= ~(1<<_A_LED); // LED aus
+
+  //PORTA &= ~(1<<_A_LED); // LED aus
+
+  if ( timer == 3 ) {
+    timer = 0;
+
+    if ( AC1.getcount() >= 3 && 
+         AC2.getcount() >= 3 && 
+         AC3.getcount() >= 3 && 
+         CUR.getcount() >= 3 ) {
   
        _A1 = AC1.getAVG();
        _A2 = AC2.getAVG();
        _A3 = AC3.getAVG();
-       _CU = CUR.getAVG();
-  
-      if ( _CU < 0b10000000 ) { // Normaler Modus
+       _CU = CUR.getAVG() - REF.getAVG();
+       
+      if ( _CU < 0 ) { // Normaler Modus
         charge = 0;
-        tmp = 0;
+        LED_off;
+        tmp = 0b00000111;
         if ( _A1 >= _A2 && _A1 >= _A3 ) {
-          tmp |= (1<<_B_ACCU1_ON);
-          tmp &= ~((1<<_B_ACCU2_ON)|(1<<_B_ACCU3_ON));
+          tmp &= ~(1<<_B_ACCU1_ON);
+          tmp |= (1<<_B_ACCU2_ON)|(1<<_B_ACCU3_ON);
         }
         if ( _A2 > _A1 && _A2 > _A3 ) {
-          tmp |= (1<<_B_ACCU2_ON);
-          tmp &= ~((1<<_B_ACCU1_ON)|(1<<_B_ACCU3_ON));
+          tmp &= ~(1<<_B_ACCU2_ON);
+          tmp |= (1<<_B_ACCU1_ON)|(1<<_B_ACCU3_ON);
         }
         if ( _A3 > _A1 && _A3 > _A2 ) {
-          tmp |= (1<<_B_ACCU3_ON);
-          tmp &= ~((1<<_B_ACCU1_ON)|(1<<_B_ACCU2_ON));
+          tmp &= ~(1<<_B_ACCU3_ON);
+          tmp |= (1<<_B_ACCU1_ON)|(1<<_B_ACCU2_ON);
         }
       }
       else {                   // Laden
         if ( charge == 0 ) {
           charge = 1;
-          tmp = 0;
+          LED_on;
+        tmp = 0b00000111;
         }
         if ( _A1 < _A2 && _A1 < _A3 ) {
-          tmp |= (1<<_B_ACCU1_ON);
+          tmp &= ~(1<<_B_ACCU1_ON);
         }
         if ( _A2 < _A1 && _A1 < _A3 ) {
-          tmp |= (1<<_B_ACCU2_ON);
+          tmp &= ~(1<<_B_ACCU2_ON);
         }
         if ( _A1 < _A2 && _A1 < _A3 ) {
-          tmp |= (1<<_B_ACCU3_ON);
+          tmp &= ~(1<<_B_ACCU3_ON);
         }
       }
-      if ( tmp == 0 )
-        tmp |= (1<<_B_ACCU1_ON);
+      if ( (tmp & 0b00000111) == 0b00000111 )
+        tmp &= 0b11111110;
       PORTB = tmp;
     }
-    goToSleep();
   }
+
+  //PORTA &= ~(1<<_A_LED); // LED aus
+  goToSleep();
+
+
 }
 
 void goToSleep( ){
@@ -174,7 +203,7 @@ uint16_t GetADC(uint8_t channel) {
 
 ISR(TIM1_OVF_vect) {    //This is the interrupt request
   timer++;
-  PORTA ^= (1<<_A_LED);
+  //PORTA ^= (1<<_A_LED);
 }
 
 ISR(ADC_vect) {
